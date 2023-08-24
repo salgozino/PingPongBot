@@ -13,5 +13,10 @@ To start the bot:
 4. create a .env file with the following values or change the .env.example file to .env and then complete the values:
  - RPC_HTTP_PROVIDER=https://goerli.infura.io/v3/<your-api-key>  <- you can defined whatever rpc http provider you have
  - PRIVATE_KEY=<the_private_key_of_the_bot>
-4. Run the bot calling: python PingPong.py
+5. Run the bot calling: python PingPong.py
  - You can change the fromBlock value to start the bot adding the parameter fromBlock in the initialization of the Bot at the end of the file
+
+ TIP:
+ For the RPC provider you can use some public RPCs, but should be chosen properly because not all the public RPCs has enabled the createFilter method.
+ Infura or Alchemy can be used, but take a look into the amount of request that you are going to do :), the free tier could limit you.
+ For goerli testnet, you can use the https://eth-goerli.g.alchemy.com/v2/demo RPC.
