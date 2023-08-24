@@ -339,5 +339,5 @@ class PingPongBot(Contract):
 
 if __name__ == "__main__":
     bot = PingPongBot(
-        address='0xC09A0F03708D8772e472C1B8B321e871df2145f9')  # Same SC deployed to test with pings
+        address='0x7d3a625977bfd7445466439e60c495bdc2855367')  # Same SC deployed to test with pings
     bot.run()
