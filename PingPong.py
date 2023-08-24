@@ -310,7 +310,7 @@ class PingPongBot(Contract):
                          " is lower than current gasPrice")
         return tx, tx_hash
 
-    async def loop_ping_listener(self, poll_interval=2):
+    async def loop_ping_listener(self, poll_interval=5):
         logging.info(
             f"Now I will ben listening for every new ping event emitted after block {self.from_block} and do a pong.")
         while True:
