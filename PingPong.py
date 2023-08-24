@@ -117,7 +117,7 @@ class PingPongBot(Contract):
         return self.ping_filter
 
     def event_ping_handler(self, event):
-        logging.info("New ping event detected!. Doing pong")
+        logging.info(f"New ping event detected at block {event['blockNumber']}!. Doing pong")
         self.do_pong(event.transactionHash)
         self.from_block = event['blockNumber'] + 1
         self._create_ping_filter(self.from_block)
@@ -314,8 +314,22 @@ class PingPongBot(Contract):
         logging.info(
             f"Now I will ben listening for every new ping event emitted after block {self.from_block} and do a pong.")
         while True:
-            for ping in self.event_ping_filter(self.from_block).get_all_entries():
-                self.event_ping_handler(ping)
+            pings = None
+            try:
+                pings = self.event_ping_filter().get_all_entries()
+            except Exception as e:
+                logging.error('Error trying to get all ping events.')
+                logging.error(e)
+            if pings:
+                try:
+                    for ping in pings:
+                        self.event_ping_handler(ping)
+                except ValueError:
+                    # not enough funds for example
+                    break
+                except Exception as e:
+                    logging.error('Error trying to handle a ping event')
+                    logging.error(e)
             await asyncio.sleep(poll_interval)
 
     def run(self):
