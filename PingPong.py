@@ -8,21 +8,31 @@ from web3 import Web3, exceptions
 from dotenv import load_dotenv
 import logging
 
-# Enable logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO,
-    filename='ping_pong_logs.log'
-)
-
 # Load environment variables
 load_dotenv()
+
+
+def setup_logger(name, log_file='ping_pong_logs.log', level=logging.INFO):
+    # Configure log file
+    logger = logging.getLogger(name)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    logger.setLevel(level)
+    fileHandler = logging.FileHandler(log_file, mode='a')
+    fileHandler.setFormatter(formatter)
+    logger.addHandler(fileHandler)
+    # streamHandler = logging.StreamHandler()
+    # streamHandler.setFormatter(formatter)
+    # logger.addHandler(streamHandler)
+    return logger
 
 
 class Contract():
     # TODO: choose the proper RPC from the chainID
     web3 = Web3(Web3.HTTPProvider(os.getenv("RPC_HTTP_PROVIDER")))
 
-    def __init__(self, address, abi_path):
+    def __init__(self, address, abi_path, logger):
+        self.logger = logger
         # Just in case to prevent error.
         self.address = Web3.to_checksum_address(address.lower())
         self.abi_path = abi_path
@@ -42,7 +52,8 @@ class Contract():
         self.contract = self.web3.eth.contract(
             address=self.address, abi=abi, decode_tuples=True)
         # TODO: raise error if contract was not possible to instantiate
-        logging.info(f"Contract wit address {self.contract.address} attached")
+        self.logger.info(
+            f"Contract wit address {self.contract.address} attached")
         return self.contract
 
     def get_transaction(self, tx_hash: str):
@@ -57,14 +68,15 @@ class Contract():
 
 class PingPongBot(Contract):
 
-    def __init__(self, address: str, from_block: int = 9316725):
-        super().__init__(address, os.path.join('abis', 'PingPong.json'))
+    def __init__(self, address: str, from_block: int = 9316725, log_file='ping_pong_logs.log', log_level=logging.INFO):
+        self.logger = setup_logger(__name__, log_file, log_level)
+        super().__init__(address, os.path.join('abis', 'PingPong.json'), self.logger)
         # get the chain id from the RPC configured
         self.chain_id = self.web3.eth.chain_id
         # Set default account as the BOT account from the Private Key stored as enviromental variable.
         self.bot_account = self.web3.eth.account.from_key(
             os.environ.get('PRIVATE_KEY', None))
-        logging.info(
+        self.logger.info(
             f"The bot will be using the public address {self.bot_account.address}")
         # TODO: Add representative balance value for each chain
         self._check_enough_balance(0.00005)
@@ -85,16 +97,18 @@ class PingPongBot(Contract):
         is_ping_in_pongs = False
         ping_hash = ping_hash.replace('0x', '')
         for pong in pongs:
-            logging.debug(
+            self.logger.debug(
                 f"Checking ping with pong {pong['args']['txHash'].hex()[:6]}")
             if pong['args']['txHash'].hex() == ping_hash:
-                logging.debug(f'Found a pong for the ping {ping_hash[0:6]}!')
+                self.logger.debug(
+                    f'Found a pong for the ping {ping_hash[0:6]}!')
                 is_ping_in_pongs = True
                 break
         return is_ping_in_pongs
 
     def _create_ping_filter(self, fromBlock):
-        logging.info(f"Creating filter for ping event from block {fromBlock}")
+        self.logger.info(
+            f"Creating filter for ping event from block {fromBlock}")
         fromBlock = fromBlock if fromBlock == 'latest' else int(fromBlock)
         self.ping_filter = self.contract.events.Ping.create_filter(
             fromBlock=fromBlock)
@@ -105,13 +119,13 @@ class PingPongBot(Contract):
         if self.ping_filter is None:
             self._create_ping_filter(fromBlock)
         else:
-            logging.info(
+            self.logger.info(
                 "Using the same filter, because the block number hasn't changed")
         return self.ping_filter
 
     def event_ping_handler(self, event):
         """Handler to execute when a ping event is detected."""
-        logging.info(
+        self.logger.info(
             f"New ping event detected at block {event['blockNumber']}!. Doing pong")
         self.do_pong(event.transactionHash)
         self.from_block = event['blockNumber'] + 1
@@ -119,7 +133,8 @@ class PingPongBot(Contract):
         return event
 
     def event_pong_filter(self, fromBlock='latest'):
-        logging.info(f"Creating filter for pong event from block {fromBlock}")
+        self.logger.info(
+            f"Creating filter for pong event from block {fromBlock}")
         fromBlock = fromBlock if fromBlock == 'latest' else int(fromBlock)
         return self.contract.events.Pong.create_filter(fromBlock=fromBlock)
 
@@ -149,7 +164,7 @@ class PingPongBot(Contract):
         pings_with_pongs = []
         if len(pings) > 0:
             for ping in pings:
-                logging.debug(
+                self.logger.debug(
                     f"Looking pong for the ping {ping['transactionHash'].hex()[2:8]}")
                 if self._check_if_ping_in_pongs(ping['transactionHash'].hex(), pongs):
                     pings_with_pongs.append(ping)
@@ -157,14 +172,14 @@ class PingPongBot(Contract):
             pings_with_pongs = sorted(
                 pings_with_pongs, key=lambda d: d['blockNumber'], reverse=True)
             ping = pings_with_pongs[0]
-            logging.info(
+            self.logger.info(
                 f"The last ping that has a pong was on the block number {ping['blockNumber']}")
             return ping['blockNumber']
         return None
 
     def get_first_ping_blocknumber_without_pong(self, fromBlock=9316725):
         """Method to search what is the block number of the last ping event without a pong response."""
-        logging.info(
+        self.logger.info(
             f"Checking the first ping block number without a pong after block {fromBlock}")
         start_block = self.get_last_ping_with_pong_blocknumber(fromBlock)
         if start_block is not None:
@@ -174,7 +189,7 @@ class PingPongBot(Contract):
                 missed_pings = sorted(
                     missed_pings, key=lambda d: d['blockNumber'], reverse=False)
                 start_block = missed_pings[0]['blockNumber']
-        logging.info(f"The starting block should be {start_block}")
+        self.logger.info(f"The starting block should be {start_block}")
         return start_block
 
     def get_pinger(self):
@@ -188,11 +203,11 @@ class PingPongBot(Contract):
         If the bot is not the pinger in the SC, will log an error but will not raise the error to break the bot."""
         pinger = self.get_pinger()
         if pinger != self.bot_account.address:
-            logging.error("The bot is not the pinger, can't do pings")
+            self.logger.error("The bot is not the pinger, can't do pings")
             return
         nonce = self.web3.eth.get_transaction_count(self.bot_account.address)
         tx_hashs = []
-        logging.info(f"Starting to do {number_of_pings} pings")
+        self.logger.info(f"Starting to do {number_of_pings} pings")
         for i in range(number_of_pings):
             tx = self.contract.functions.ping().build_transaction({
                 'chainId': self.chain_id,
@@ -215,9 +230,9 @@ class PingPongBot(Contract):
                     # TODO: Catch other errors within ValueError
                     raise ValueError(e)
             except Exception as e:
-                logging.error(
+                self.logger.error(
                     f"Error while sending raw txs for ping. {tx_hash.hex()}")
-                logging.error(e)
+                self.logger.error(e)
                 break
             tx_hashs.append(tx_hash)
 
@@ -228,18 +243,18 @@ class PingPongBot(Contract):
                     self.web3.eth.wait_for_transaction_receipt(tx_hash)
                     receipts.append(
                         self.web3.eth.get_transaction_receipt(tx_hash))
-                    logging.info(
+                    self.logger.info(
                         f"Ping executed with tx hash {tx_hash.hex()[:6]}")
                     break
                 except exceptions.TimeExhausted:
                     # keep waiting!
-                    logging.info(
+                    self.logger.info(
                         f"Waiting for more time to the ping tx {tx_hash.hex()[:6]} be minted")
                     pass
                 except Exception as e:
-                    logging.error(
+                    self.logger.error(
                         f"Error while waiting for ping tx to be mined. {tx_hash.hex()}")
-                    logging.error(e)
+                    self.logger.error(e)
                     break
 
     def do_pong_on_missing_pings(self):
@@ -248,18 +263,20 @@ class PingPongBot(Contract):
         This method should be called at the beggining of the run in order to
         pong all the missed pings. This will not run async.
         """
-        logging.info(f"Checking missed pings since block {self.from_block}")
+        self.logger.info(
+            f"Checking missed pings since block {self.from_block}")
         # from_block was already defined in __init__ as the block where the first
         # missed ping is.
         for ping in self.event_ping_filter(self.from_block).get_all_entries():
             event = self.event_ping_handler(ping)
             self.from_block = event['blockNumber'] + 1
-        logging.info(f"I'm up to date to the block {self.from_block}")
+        self.logger.info(f"I'm up to date to the block {self.from_block}")
         return self.from_block
 
     def do_pong(self, ping_hash: bytes):
         """Call the pong function in the SC with the ping hash"""
-        logging.info(f"Calling pong with the ping tx hash {ping_hash.hex()}")
+        self.logger.info(
+            f"Calling pong with the ping tx hash {ping_hash.hex()}")
         if not self._check_if_ping_in_pongs(ping_hash.hex()):
             tx = self.contract.functions.pong(ping_hash.hex()).build_transaction({
                 'chainId': self.chain_id,
@@ -274,12 +291,12 @@ class PingPongBot(Contract):
                     # Send the transaction
                     tx_hash = self.web3.eth.send_raw_transaction(
                         signed_transaction.rawTransaction)
-                    logging.debug(
+                    self.logger.debug(
                         "Transaction Hash for the pong function call:", tx_hash.hex())
                     self.web3.eth.wait_for_transaction_receipt(
                         tx_hash)
                     receipt = self.web3.eth.get_transaction_receipt(tx_hash)
-                    logging.info(
+                    self.logger.info(
                         f'Receipt received with tx hash {receipt.transactionHash.hex()} at block {receipt.blockNumber}')
                     return receipt
                 except exceptions.TimeExhausted:
@@ -296,7 +313,7 @@ class PingPongBot(Contract):
                         # TODO: Catch other errors within ValueError
                         raise ValueError(e)
         else:
-            logging.error(
+            self.logger.error(
                 f"The ping with hash {ping_hash.hex()[2:8]} already has pong, should be in this function")
             return None
 
@@ -305,7 +322,7 @@ class PingPongBot(Contract):
         new_gas_price = int(self.web3.eth.gas_price * 1.125)
         if new_gas_price > tx['gasPrice']:
             tx['gasPrice'] = new_gas_price
-            logging.info(
+            self.logger.info(
                 f"Gas is low, tx send again with gasPrice increased to {tx['gasPrice']}."
             )
             signed_transaction = self.bot_account.sign_transaction(
@@ -313,23 +330,23 @@ class PingPongBot(Contract):
             # Send the transaction
             tx_hash = self.web3.eth.send_raw_transaction(
                 signed_transaction.rawTransaction)
-            logging.info(
+            self.logger.info(
                 f"New tx hash starts with {tx_hash.hex()[:6]}")
         else:
-            logging.info("I will wait once again without modifying the gasPrice because new gasPrice"
-                         " is lower than current gasPrice")
+            self.logger.info("I will wait once again without modifying the gasPrice because new gasPrice"
+                             " is lower than current gasPrice")
         return tx, tx_hash
 
     async def loop_ping_listener(self, poll_interval=5):
-        logging.info(
+        self.logger.info(
             f"Now I will ben listening for every new ping event emitted after block {self.from_block} and do a pong.")
         while True:
             pings = None
             try:
                 pings = self.get_all_pings(self.from_block)
             except Exception as e:
-                logging.error('Error trying to get all ping events.')
-                logging.error(e)
+                self.logger.error('Error trying to get all ping events.')
+                self.logger.error(e)
                 # Reset the ping filter
                 self.ping_filter = None
             if pings:
@@ -340,8 +357,8 @@ class PingPongBot(Contract):
                     # not enough funds for example
                     break
                 except Exception as e:
-                    logging.error('Error trying to handle a ping event')
-                    logging.error(e)
+                    self.logger.error('Error trying to handle a ping event')
+                    self.logger.error(e)
             await asyncio.sleep(poll_interval)
 
     def update_from_block(self):
@@ -349,7 +366,7 @@ class PingPongBot(Contract):
         Check all the pong events since the from_block and update the from block to the
         last missed ping event.
         """
-        logging.info("Checking if the from_block has to be updated")
+        self.logger.info("Checking if the from_block has to be updated")
         start_block = self.get_last_ping_with_pong_blocknumber(self.from_block)
         if start_block is not None:
             # Update the from bloc and create a new filter por pings
@@ -371,7 +388,7 @@ class PingPongBot(Contract):
                 )
             )
         except KeyboardInterrupt:
-            logging.info("Hasta la vista, baby!")
+            self.logger.info("Hasta la vista, baby!")
         finally:
             # close loop to free up system resources
             loop.close()
