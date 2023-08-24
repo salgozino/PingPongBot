@@ -69,9 +69,17 @@ class PingPongBot(Contract):
         # TODO: Add representative balance value for each chain
         self._check_enough_balance(0.00005)
         self.web3.eth.default_account = self.bot_account
+        self.ping_filter = None
         self.pongs = set(self.get_all_pongs(from_block))
         start_block = self.get_last_ping_with_pong_blocknumber(from_block)
-        self.from_block = start_block + 1 if start_block is not None else from_block
+        if start_block is not None:
+            self.from_block = start_block + 1
+            # Need to update the ping filter to the new block.
+            self._create_ping_filter(self.from_block)
+        else:
+            # No need to change the current ping filter because is the same block number
+            # The ping_filter was created in get_last_ping_with_pong_blocknumber
+            self.from_block = from_block
 
     def _check_enough_balance(self, min_balance=0.0005):
         balance = self.web3.eth.get_balance(self.bot_account.address)
@@ -94,15 +102,25 @@ class PingPongBot(Contract):
                 break
         return is_ping_in_pongs
 
-    def event_ping_filter(self, fromBlock='latest'):
+    def _create_ping_filter(self, fromBlock):
         logging.info(f"Creating filter for ping event from block {fromBlock}")
         fromBlock = fromBlock if fromBlock == 'latest' else int(fromBlock)
-        return self.contract.events.Ping.create_filter(fromBlock=fromBlock)
+        self.ping_filter = self.contract.events.Ping.create_filter(fromBlock=fromBlock)
+        self.from_block = fromBlock
+        return self.ping_filter
+
+    def event_ping_filter(self, fromBlock='latest'):
+        if self.ping_filter is None:
+            self._create_ping_filter(fromBlock)
+        else:
+            logging.info("Using the same filter, because the block number hasn't changed")
+        return self.ping_filter
 
     def event_ping_handler(self, event):
         logging.info("New ping event detected!. Doing pong")
         self.do_pong(event.transactionHash)
         self.from_block = event['blockNumber'] + 1
+        self._create_ping_filter(self.from_block)
         return event
 
     def event_pong_filter(self, fromBlock='latest'):
