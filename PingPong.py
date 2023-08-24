@@ -316,10 +316,12 @@ class PingPongBot(Contract):
         while True:
             pings = None
             try:
-                pings = self.event_ping_filter().get_all_entries()
+                pings = self.event_ping_filter(self.from_block).get_all_entries()
             except Exception as e:
                 logging.error('Error trying to get all ping events.')
                 logging.error(e)
+                # Reset the ping filter
+                self.ping_filter = None
             if pings:
                 try:
                     for ping in pings:
